@@ -38,7 +38,7 @@
 #define MF_SYNC2 0x55
 #define MF_MAX_PAYLOAD 200
 #define MF_MAX_FRAME (6 + MF_MAX_PAYLOAD)
-#define MF_LINK_BAUD 115200   // ~1.8 kB/s of traffic, so 115200 has >5x headroom. Raise later if wanted.
+#define MF_LINK_BAUD 460800   // ~1.8 kB/s of traffic, so 115200 has >5x headroom. Raise later if wanted.
 
 enum : uint8_t {
   MF_MSG_INFO   = 0x01,
@@ -154,7 +154,7 @@ class MfParser {
   uint32_t ok = 0;        // frames accepted
   uint32_t crc_err = 0;   // frames rejected by CRC
 
-  bool feed(uint8_t b) {
+   bool feed(uint8_t b) {
     switch (st_) {
       case S1:   if (b == MF_SYNC1) st_ = S2; break;
       case S2:   if (b == MF_SYNC2) st_ = TYPE; else if (b != MF_SYNC1) st_ = S1; break;
@@ -173,8 +173,28 @@ class MfParser {
         uint16_t c = mf_crc16(hdr, 2);
         c = mf_crc16(payload, len, c);
         st_ = S1;
-        if (c == crc_rx_) { ok++; return true; }
+
+        if (c == crc_rx_) {
+          ok++;
+         // Serial.printf("OK type=%02X len=%u id=%u\n", type, len, len ? payload[0] : 0);
+
+          return true; 
+        }
         crc_err++;
+        Serial.printf("ERR type=%02X len=%u id=%u rx=%04X calc=%04X\n",
+              type, len, len ? payload[0] : 0, crc_rx_, c);
+
+        Serial.print("[RX payload] ");
+        for (uint8_t i = 0; i < len; i++) {
+          Serial.printf("%02X ", payload[i]);
+        }
+        Serial.println();
+
+        Serial.printf("[RX CRC bytes] %02X %02X\n",
+              crc_rx_ & 0xFF, crc_rx_ >> 8);
+
+        Serial.println();
+            
         break;
       }
     }

@@ -23,7 +23,7 @@
 #include "mf_ble_proto.h"
 
 static inline long mf_rnd(float v, long lo, long hi) {
-  if (isnan(v)) return 0;                       // a valid-flagged NaN is a sender bug; don't hit UB
+  if (__builtin_isnan(v)) return 0;                       // a valid-flagged NaN is a sender bug; don't hit UB
   if (v > (float)hi) return hi;
   if (v < (float)lo) return lo;
   return lroundf(v);

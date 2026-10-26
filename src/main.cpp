@@ -1,4 +1,4 @@
-// esp32c3_vario_ble.ino - BLE bridge for the RP2350 variometer.
+// main.cpp - BLE bridge for the RP2350 variometer.
 //
 // Receives MfState / MfGps / INFO frames over UART (see mf_ble_proto.h) and republishes them
 // as GATT characteristics that XCTrack understands: Device Information, Battery, Environmental
@@ -10,9 +10,8 @@
 // Files:  this sketch folder must also contain mf_ble_proto.h, mf_nmea.h, mf_ble_encode.h.
 //
 // Wiring (3.3 V, common GND):
-//   ESP32 GPIO4 (RX)  <-  RP2350 GPIO24 (UART1 TX)
-//   ESP32 GPIO3 (TX)  ->  RP2350 GPIO25 (UART1 RX)
-// GPIO2 / 8 / 9 are strapping pins on the C3 - not used here on purpose.
+//   ESP32 GPI20 (RX)  <-  RP2350 GPIO20 (UART1 TX)
+//   ESP32 GPI21 (TX)  ->  RP2350 GPIO21 (UART1 RX)
 
 #include <Arduino.h>
 #include <BLEDevice.h>
@@ -28,8 +27,8 @@
 #include "mf_ble_encode.h"
 
 // ------------------------------------------------------------------ configuration
-#define LINK_RX_PIN 4
-#define LINK_TX_PIN 3
+#define LINK_RX_PIN 20
+#define LINK_TX_PIN 21
 #define DEVICE_NAME "WindVario"          // your own name: XCTrack keys on the service UUID, not the name
 
 #define STALE_MS 1500                    // no STATE frame for this long -> stop notifying (never repeat stale data)
@@ -73,6 +72,7 @@ static BLECharacteristic *c_mode, *c_vario, *c_netto, *c_tas, *c_ias, *c_hdg, *c
 static BLECharacteristic *c_ssp;
 
 static volatile bool g_connected = false;
+static volatile bool g_force_mode = false;   // set on connect so the vario mode is notified immediately
 static volatile uint16_t g_mtu = 23;
 
 static MfParser g_parser;
@@ -219,9 +219,12 @@ static void publish(uint32_t now) {
         put(*o.chr, b, n);
       }
     }
-    // vario mode: notify on change, and refresh now and then so a late subscriber sees it
+    // vario mode: notify on change and right after a connect, and refresh every second. A phone
+    // enables notifications a moment AFTER connecting, so a one-off notification would be missed;
+    // the 1 Hz refresh (1 byte) is what guarantees a late subscriber still gets the mode.
     if (s.valid & MF_V_VARIO) {
-      if (s.vario_mode != last_mode || due(t_mode, now, 5000)) {
+      if (s.vario_mode != last_mode || g_force_mode || due(t_mode, now, 1000)) {
+        g_force_mode = false;
         last_mode = s.vario_mode;
         size_t n = mf_enc_vario_mode(b, s);
         put(c_mode, b, n);
@@ -322,10 +325,29 @@ void loop() {
   while (Serial1.available() > 0) {
     int b = Serial1.read();
     if (b >= 0 && g_parser.feed((uint8_t)b)) handleFrame();
+ /*
+ //Debug
+  if (b >= 0) {
+      if (b < 0x10) Serial.print('0');
+      Serial.print(b, HEX);
+      Serial.print(' ');
+      if (g_parser.feed((uint8_t)b)) handleFrame();
+    }*/
+   
   }
+
   const uint32_t now = millis();
   publish(now);
   sendStatus(now);
   debugPrint(now);
+
+  /*
+  //Testing receiving
+    while (Serial1.available() > 0) {
+    int c = Serial1.read();
+    Serial.write(c);  // Print received bytes as-is
+  }
+
+  */
   delay(2);
 }
